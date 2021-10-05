@@ -3,19 +3,16 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:gql_exec/gql_exec.dart';
+import 'package:graphql/src/core/query_options.dart' show WithType;
 import 'package:graphql/src/links/gql_links.dart';
 import 'package:meta/meta.dart';
-
-import 'package:graphql/src/core/query_options.dart' show WithType;
-import 'package:gql_exec/gql_exec.dart';
-
-import 'package:stream_channel/stream_channel.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as ws_status;
-
 import 'package:rxdart/rxdart.dart';
+import 'package:stream_channel/stream_channel.dart';
 import 'package:uuid/uuid.dart';
 import 'package:uuid/uuid_util.dart';
+import 'package:web_socket_channel/status.dart' as ws_status;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import './websocket_messages.dart';
 
@@ -161,11 +158,9 @@ class SocketClient {
   final Iterable<String>? protocols;
   final SocketClientConfig config;
 
-  final BehaviorSubject<SocketConnectionState> _connectionStateController =
-      BehaviorSubject<SocketConnectionState>();
+  final BehaviorSubject<SocketConnectionState> _connectionStateController = BehaviorSubject<SocketConnectionState>();
 
-  final HashMap<String, SubscriptionListener> _subscriptionInitializers =
-      HashMap();
+  final HashMap<String, SubscriptionListener> _subscriptionInitializers = HashMap();
 
   bool _connectionWasLost = false;
 
@@ -185,11 +180,9 @@ class SocketClient {
   StreamSubscription<ConnectionKeepAlive>? _keepAliveSubscription;
   StreamSubscription<GraphQLSocketMessage>? _messageSubscription;
 
-  Map<String, dynamic> Function(Request) get serialize =>
-      config.serializer.serializeRequest;
+  Map<String, dynamic> Function(Request) get serialize => config.serializer.serializeRequest;
 
-  Response Function(Map<String, dynamic>) get parse =>
-      config.parser.parseResponse;
+  Response Function(Map<String, dynamic>) get parse => config.parser.parseResponse;
 
   void _disconnectOnKeepAliveTimeout(Stream<GraphQLSocketMessage> messages) {
     _keepAliveSubscription = messages.whereType<ConnectionKeepAlive>().timeout(
@@ -221,8 +214,7 @@ class SocketClient {
     try {
       // Even though config.connect is sync, we call async in order to make the
       // SocketConnectionState.connected attribution not overload SocketConnectionState.connecting
-      socketChannel =
-          await config.connect(Uri.parse(url), protocols).forGraphQL();
+      socketChannel = await config.connect(Uri.parse(url), protocols).forGraphQL();
       _connectionStateController.add(SocketConnectionState.connected);
       print('Connected to websocket.');
       _write(initOperation);
@@ -267,8 +259,7 @@ class SocketClient {
     _connectionWasLost = true;
     _subscriptionInitializers.values.forEach((s) => s.hasBeenTriggered = false);
 
-    if (_connectionStateController.value !=
-        SocketConnectionState.notConnected) {
+    if (_connectionStateController.value != SocketConnectionState.notConnected) {
       _connectionStateController.add(SocketConnectionState.notConnected);
     }
 
@@ -308,7 +299,7 @@ class SocketClient {
   }
 
   void _write(final GraphQLSocketMessage message) {
-    if (_connectionStateController.value == SocketConnectionState.connected) {
+    if (_connectionStateController.value == SocketConnectionState.connected && socketChannel != null) {
       socketChannel!.sink.add(
         json.encode(
           message,
@@ -337,17 +328,12 @@ class SocketClient {
     ).toString();
     final StreamController<Response> response = StreamController<Response>();
     StreamSubscription<SocketConnectionState>? sub;
-    final bool addTimeout =
-        !payload.isSubscription && config.queryAndMutationTimeout != null;
+    final bool addTimeout = !payload.isSubscription && config.queryAndMutationTimeout != null;
 
     final onListen = () {
       final Stream<SocketConnectionState> waitForConnectedStateWithoutTimeout =
-          (waitForConnection
-                  ? _connectionStateController
-                  : _connectionStateController
-                      .startWith(SocketConnectionState.connected))
-              .where((SocketConnectionState state) =>
-                  state == SocketConnectionState.connected)
+          (waitForConnection ? _connectionStateController : _connectionStateController.startWith(SocketConnectionState.connected))
+              .where((SocketConnectionState state) => state == SocketConnectionState.connected)
               .take(1);
 
       final Stream<SocketConnectionState> waitForConnectedState = addTimeout
@@ -382,10 +368,7 @@ class SocketClient {
         ).takeWhile((_) => !response.isClosed);
 
         final Stream<GraphQLSocketMessage> subscriptionComplete = addTimeout
-            ? dataErrorComplete
-                .where((message) => message is SubscriptionComplete)
-                .take(1)
-                .timeout(
+            ? dataErrorComplete.where((message) => message is SubscriptionComplete).take(1).timeout(
                 config.queryAndMutationTimeout!,
                 onTimeout: (EventSink<GraphQLSocketMessage> event) {
                   print('Request timed out.');
@@ -394,23 +377,15 @@ class SocketClient {
                   response.close();
                 },
               )
-            : dataErrorComplete
-                .where((message) => message is SubscriptionComplete)
-                .take(1);
+            : dataErrorComplete.where((message) => message is SubscriptionComplete).take(1);
 
         subscriptionComplete.listen((_) => response.close());
 
-        dataErrorComplete
-            .where((message) => message is SubscriptionData)
-            .cast<SubscriptionData>()
-            .listen((message) => response.add(
-                  parse(message.toJson()),
-                ));
+        dataErrorComplete.where((message) => message is SubscriptionData).cast<SubscriptionData>().listen((message) => response.add(
+              parse(message.toJson()),
+            ));
 
-        dataErrorComplete
-            .where((message) => message is SubscriptionError)
-            .cast<SubscriptionError>()
-            .listen((message) => response.addError(message));
+        dataErrorComplete.where((message) => message is SubscriptionError).cast<SubscriptionError>().listen((message) => response.addError(message));
 
         if (!_subscriptionInitializers[id]!.hasBeenTriggered) {
           _write(
@@ -430,8 +405,7 @@ class SocketClient {
       _subscriptionInitializers.remove(id);
 
       sub?.cancel();
-      if (_connectionStateController.value == SocketConnectionState.connected &&
-          socketChannel != null) {
+      if (_connectionStateController.value == SocketConnectionState.connected && socketChannel != null) {
         _write(StopOperation(id));
       }
     };
@@ -443,8 +417,7 @@ class SocketClient {
 
   /// These streams will emit done events when the current socket is done.
   /// A stream that emits the last value of the connection state upon subscription.
-  Stream<SocketConnectionState> get connectionState =>
-      _connectionStateController.stream;
+  Stream<SocketConnectionState> get connectionState => _connectionStateController.stream;
 }
 
 void _defaultOnStreamError(Object error, StackTrace st) {
@@ -452,10 +425,8 @@ void _defaultOnStreamError(Object error, StackTrace st) {
       'stacktrace:\n${st.toString()}');
 }
 
-class GraphQLWebSocketChannel extends StreamChannelMixin
-    implements WebSocketChannel {
-  GraphQLWebSocketChannel(this._webSocket)
-      : stream = _webSocket.stream.asBroadcastStream();
+class GraphQLWebSocketChannel extends StreamChannelMixin implements WebSocketChannel {
+  GraphQLWebSocketChannel(this._webSocket) : stream = _webSocket.stream.asBroadcastStream();
 
   WebSocketChannel _webSocket;
 
@@ -463,8 +434,7 @@ class GraphQLWebSocketChannel extends StreamChannelMixin
   Stream<GraphQLSocketMessage>? _messages;
 
   /// Stream of messages from the endpoint parsed as GraphQLSocketMessages
-  Stream<GraphQLSocketMessage> get messages => _messages ??=
-      stream.map<GraphQLSocketMessage>(GraphQLSocketMessage.parse);
+  Stream<GraphQLSocketMessage> get messages => _messages ??= stream.map<GraphQLSocketMessage>(GraphQLSocketMessage.parse);
 
   String? get protocol => _webSocket.protocol;
 
@@ -478,7 +448,5 @@ class GraphQLWebSocketChannel extends StreamChannelMixin
 
 extension GraphQLGetter on WebSocketChannel {
   /// Returns a wrapper that has safety and convenience features for graphql
-  GraphQLWebSocketChannel forGraphQL() => this is GraphQLWebSocketChannel
-      ? this as GraphQLWebSocketChannel
-      : GraphQLWebSocketChannel(this);
+  GraphQLWebSocketChannel forGraphQL() => this is GraphQLWebSocketChannel ? this as GraphQLWebSocketChannel : GraphQLWebSocketChannel(this);
 }
